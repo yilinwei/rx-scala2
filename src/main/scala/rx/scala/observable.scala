@@ -10,6 +10,7 @@ import io.reactivex.{functions => rxf}
 
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
+
 import Conversions._
 
 private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
@@ -17,6 +18,10 @@ private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
   def flatMap[B, That](f: A => Observable[B]): Observable[B] = o.flatMap(f)
   def foreach(f: A => Unit): Unit = o.foreach(f)
   def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter[A](a => p(a) && f(a), o)
+}
+
+object Test {
+  implicitly[Conversion[() => Unit, io.reactivex.functions.Action]]
 }
 
 final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self =>

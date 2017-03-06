@@ -8,6 +8,7 @@ import io.reactivex.{SingleSource, functions => rxf}
 import scala.concurrent._
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
+
 import Conversions._
 
 final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
@@ -16,6 +17,9 @@ final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
 
   def map[B](f: A => B): Single[B] =
     repr[A].map[B](f.asJava[rxf.Function[A, B]])
+
+  def flatMap[B](f: A => Single[B]): Single[B] =
+    repr[A].flatMap(f.andThen(_.repr[B]).asJava[rxf.Function[A, rx.Single[B]]])
 
   def handle[AA >: A](f: PartialFunction[Throwable, Single[AA]]): Single[AA] = {
     val func = (t: Throwable) => if (f.isDefinedAt(t)) f(t).repr[AA] else Single.error(t).repr[AA]
