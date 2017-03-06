@@ -1,16 +1,6 @@
 import sbt.Keys._
 import sbt.{IO, _}
 
-sealed trait Return
-
-object Return {
-
-  case object Any extends Return
-
-  case class Fixed(tpe: String) extends Return
-
-}
-
 case class Interface(pkg: String, name: String, pArity: Int, fixedReturn: Option[String], method: String) {
   def fullName: String = s"$pkg.$name"
 
@@ -37,17 +27,24 @@ object Interfaces {
   val bifunction = Interface(rx, "BiFunction", 2, None, "apply")
   val biConsumer = Interface(rx, "BiConsumer", 2, Some("Unit"), "accept")
   val biPredicate = Interface(rx, "BiPredicate", 2, Some("Boolean"), "test")
+  val function3 = Interface(rx, "Function3", 3, None, "apply")
+  val function4 = Interface(rx, "Function4", 4, None, "apply")
+  val function5 = Interface(rx, "Function5", 5, None, "apply")
+  val function6 = Interface(rx, "Function6", 6, None, "apply")
+  val function7 = Interface(rx, "Function7", 7, None, "apply")
+  val function8 = Interface(rx, "Function8", 8, None, "apply")
+  val function9 = Interface(rx, "Function9", 9, None, "apply")
 }
 
 case class Conversion(interface: Interface, fix: Option[String] = None)
 
-object Template {
-
+trait Generator {
   def `A-Z`(arity: Int): String = if (arity == 0) "" else ('A' to `AZ`(arity - 1)).mkString(", ")
-
   def `AZ`(index: Int): Char = ('A'.toInt + index).toChar
-
   def `az`(index: Int): Char = ('a'.toInt + index).toChar
+}
+
+object ConversionGenerator extends Generator {
 
   def parameters(arity: Int): String = if (arity == 0) ""
   else (0 until arity)
@@ -66,13 +63,13 @@ object Template {
       case None => functionTpe(arity)
     }
     val body = if (version.startsWith("2.12")) {
-      s"""f => (${`a-z`(interface.pArity)}) => f(${`a-z`(interface.pArity)})"""
+      s"""function => (${`a-z`(interface.pArity)}) => function(${`a-z`(interface.pArity)})"""
     } else {
       s"""
          | new Conversion[$fTpe, $iTpe] {
-         |    def apply(f: $fTpe): $iTpe = new $iTpe {
+         |    def apply(function: $fTpe): $iTpe = new $iTpe {
          |      def ${interface.method}(${parameters(interface.pArity)}): ${interface.fixedReturn.getOrElse(`AZ`(arity))} =
-         |        f(${`a-z`(arity)})
+         |        function(${`a-z`(arity)})
          |    }
          | }
        """
@@ -85,19 +82,10 @@ object Template {
   def conversions(arity: Int, interfaces: Seq[Interface]): (String, File) => File = {
     (version, base) => {
       val fTpe = functionTpe(arity)
-      val opsName = s"Function${arity}RxJavaConversionOps"
-      val ops =
-        s"""
-           | private[rx] final class $opsName[${`A-Z`(arity + 1)}](val value: $fTpe) extends AnyVal {
-           |   def asJava[O](implicit conversion: Conversion[$fTpe, O]): O = conversion(value)
-           | }
-       """.stripMargin
       val text =
         s"""
            | package rx.scala
-           | $ops
            | private[rx] trait Function${arity}Conversions {
-           |    implicit def toFunction${arity}JavaConversionOps[${`A-Z`(arity + 1)}](f: $fTpe): $opsName[${`A-Z`(arity + 1)}] = new $opsName(f)
            |    ${interfaces.map(conversion(version, _, arity)).mkString(System.lineSeparator())}
            | }
            |
@@ -126,3 +114,32 @@ object Template {
 
 }
 
+object KConvertGenerator extends Generator {
+
+  def kind(arity: Int): String = (0 until arity).map(_ => "_").mkString(",")
+
+  def kConvert(arity: Int): String = {
+    val name = s"KConvert${arity}Ops"
+    val k = s"FF[${kind(arity)}]"
+    s"""
+       | implicit final class $name[$k, ${`A-Z`(arity)}](val value: FF[${`A-Z`(arity)}]) extends AnyVal {
+       |    def convert[OO](implicit convert: Conversion[FF[${`A-Z`(arity)}], OO]) = convert(value)
+       |    def convertK[GG[${kind(arity)}]](implicit convert: Conversion[FF[${`A-Z`(arity)}], GG[${`A-Z`(arity)}]]) = convert(value)
+       |    ${if(arity > 1) s"def convertK1[GG[${kind(arity - 1)}]](implicit convert: Conversion[FF[${`A-Z`(arity)}], GG[${`A-Z`(arity - 1)}]]) = convert(value)" else ""}
+       | }
+     """.stripMargin
+  }
+
+  def generate(arity: Int) = Def.task {
+    val path = (sourceManaged in Compile).value / "rx" / "scala"
+    val text = s"""
+       | package rx.scala
+       | object KTransform {
+       |  ${(1 until arity).map(kConvert).mkString(System.lineSeparator())}
+       | }
+     """.stripMargin
+    val file = path / "KTransform.scala"
+    IO.write(file, text)
+    Seq(file)
+  }
+}

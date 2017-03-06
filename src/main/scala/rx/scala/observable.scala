@@ -6,12 +6,10 @@ import cats._
 
 import scala.collection.JavaConverters._
 import io.{reactivex => rx}
-import io.reactivex.{functions => rxf}
 
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
-
-import Conversions._
+import io.reactivex.functions._
 
 private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
   def map[B](f: A => B): Observable[B] = o.map(f)
@@ -20,13 +18,12 @@ private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
   def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter[A](a => p(a) && f(a), o)
 }
 
-object Test {
-  implicitly[Conversion[() => Unit, io.reactivex.functions.Action]]
-}
+import KTransform._
 
-final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self =>
+final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
+  self =>
 
-  def repr[AA >: A]: rx.Observable[AA] = value.asInstanceOf[rx.Observable[AA]]
+  @inline def asJava[AA >: A]: rx.Observable[AA] = value.asInstanceOf[rx.Observable[AA]]
 
   /**
     * Example:
@@ -40,13 +37,11 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     *   res0: List[Int] = List(3)
     * }}}
     */
-  def filter(f: A => Boolean): Observable[A] =
-    repr[A].filter(f.asJava[rxf.Predicate[A]])
+  def filter(f: A => Boolean): Observable[A] = asJava.filter(f.convertK1[Predicate]).asScala
 
   def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter(f, self)
 
-  def foreach(f: A => Unit): Disposable =
-    repr[A].forEach(f.asJava[rxf.Consumer[A]])
+  def foreach(f: A => Unit): Disposable = asJava.forEach(f.convertK1[Consumer]).asScala
 
   /**
     * Example:
@@ -61,7 +56,7 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def map[B](f: A => B): Observable[B] =
-    repr[A].map[B](f.asJava[rxf.Function[A, B]])
+  asJava[A].map[B](f.convertK[Function]).asScala
 
   def mapError(f: PartialFunction[Throwable, Throwable]): Observable[A] =
     handle(f.andThen(t => Observable.error[A](t)))
@@ -79,7 +74,7 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def flatMap[B](f: A => Observable[B]): Observable[B] =
-    repr[A].flatMap(f.andThen(_.repr[B]).asJava[rxf.Function[A, rx.Observable[B]]])
+  asJava[A].flatMap(f.andThen(_.asJava[B]).convertK[Function]).asScala
 
   /**
     * Example:
@@ -94,8 +89,8 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def flatten[B](implicit ev: A <:< Observable[B]): Observable[B] = {
-    val o = map(_.repr[B]).repr[rx.Observable[B]]
-    rx.Observable.merge(o)
+    val o = map(_.asJava[B]).asJava[rx.Observable[B]]
+    rx.Observable.merge(o).asScala
   }
 
   /**
@@ -111,9 +106,8 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def handle[AA >: A](f: PartialFunction[Throwable, Observable[AA]]): Observable[AA] = {
-    val func: Throwable => rx.ObservableSource[AA] =
-      t => if(f.isDefinedAt(t)) f(t).repr[AA] else Observable.error[A](t).repr[AA]
-    repr[AA].onErrorResumeNext(func.asJava[rxf.Function[Throwable, rx.ObservableSource[AA]]])
+    val func = (t: Throwable) => if (f.isDefinedAt(t)) f(t).asJava[AA] else Observable.error[A](t).asJava[AA]
+    asJava[AA].onErrorResumeNext(func.convertK[Function]).asScala
   }
 
   /**
@@ -130,11 +124,11 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def orElse[AA >: A](that: Observable[AA]): Observable[AA] =
-    repr[AA].onErrorResumeNext(that.repr[AA])
+  asJava[AA].onErrorResumeNext(that.asJava[AA]).asScala
 
   //TODO: move out into subproject
   def scan[AA >: A, M](implicit M: Monoid[AA]): Observable[AA] =
-    scanLeft(M.empty)(M.combine)
+  scanLeft(M.empty)(M.combine)
 
   /**
     * Example:
@@ -149,7 +143,7 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def scanLeft[B](b: B)(f: (B, A) => B): Observable[B] =
-    repr[A].scan[B](b, f.asJava[rxf.BiFunction[B, A, B]])
+  asJava[A].scan[B](b, f.convertK[BiFunction]).asScala
 
   /**
     * Example:
@@ -164,17 +158,17 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def foldLeft[B](b: B)(f: (B, A) => B): Single[B] =
-    repr[A].reduce[B](b, f.asJava[rxf.BiFunction[B, A, B]])
+  asJava[A].reduce[B](b, f.convertK[BiFunction]).asScala
 
   //TODO: move out into subproject
   def fold[AA >: A, M](implicit M: Monoid[AA]): Single[AA] =
-    repr[AA].reduce((M.combine _).asJava[rxf.BiFunction[AA, AA, AA]]).toSingle(M.empty)
+  asJava[AA].reduce((M.combine _).convertK[BiFunction]).toSingle(M.empty).asScala
 
   def debounce(duration: Duration): Observable[A] =
-    repr.debounce(duration.length, duration.unit)
+    asJava.debounce(duration.length, duration.unit).asScala
 
   def delay(duration: Duration): Observable[A] =
-    repr[A].delay(duration.length, duration.unit)
+    asJava.delay(duration.length, duration.unit).asScala
 
   /**
     * Example:
@@ -189,65 +183,64 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     * }}}
     */
   def distinct: Observable[A] =
-    repr[A].distinct
+  asJava.distinct.asScala
 
   def drop(count: Long): Observable[A] =
-    repr[A].skip(count)
+    asJava.skip(count).asScala
 
   def dropWhile(f: A => Boolean): Observable[A] =
-    repr[A].skipWhile(f.asJava[rxf.Predicate[A]])
+    asJava.skipWhile(f.convertK1[Predicate]).asScala
 
   def tail: Observable[A] = drop(1)
 
   def take(count: Long): Observable[A] =
-    repr[A].take(count)
+    asJava.take(count).asScala
 
   def take(duration: Duration): Observable[A] =
-    repr[A].take(duration.length, duration.unit)
+    asJava.take(duration.length, duration.unit).asScala
 
   def takeWhile(f: A => Boolean): Observable[A] =
-    repr[A].takeWhile(f.asJava[rxf.Predicate[A]])
+    asJava.takeWhile(f.convertK1[Predicate]).asScala
 
   def get(index: Long): Single[Option[A]] =
-    map(Option(_)).repr.elementAt(index).toSingle(None)
+    map(Option(_)).asJava.elementAt(index).toSingle(None).asScala
 
   private def elseDefault[AA >: A](s: Single[Option[AA]], a: => AA): Single[AA] =
     s.map((o: Option[AA]) => o.getOrElse(a))
 
   def getOrElse[AA >: A](index: Long, a: => AA): Single[AA] =
-    elseDefault(get(index), a)
+     elseDefault(get(index), a)
 
   def head: Single[Option[A]] =
-    map(Option(_)).repr.firstElement().toSingle(None)
+    map(Option(_)).asJava.firstElement().toSingle(None).asScala
 
   def headOrElse[AA >: A](a: => AA): Single[AA] =
     elseDefault(head, a)
 
-  def last: Single[Option[A]] = map(Option(_)).repr.last(None)
+  def last: Single[Option[A]] = map(Option(_)).asJava.last(None).asScala
 
   def lastOrElse[AA >: A](a: => AA): Single[AA] =
     elseDefault(last, a)
 
   def map2[B, C](that: Observable[B])(f: (A, B) => C): Observable[C] =
-    repr[A].zipWith[B, C](that.repr[B], f.asJava[rxf.BiFunction[A, B, C]])
+    asJava[A].zipWith[B, C](that.asJava[B], f.convertK[BiFunction]).asScala
 
   def map2Latest[B, C](that: Observable[B])(f: (A, B) => C): Observable[C] =
-    rx.Observable.combineLatest[A, B, C](self.repr[A], that.repr[B], f.asJava[rxf.BiFunction[A, B, C]])
+    rx.Observable.combineLatest[A, B, C](self.asJava[A], that.asJava[B], f.convertK[BiFunction]).asScala
 
   def merge[AA >: A](that: Observable[AA]): Observable[AA] =
-    rx.Observable.merge(repr[A], that.repr[AA])
+    rx.Observable.merge(asJava[A], that.asJava[AA]).asScala
 
   def zip[B](that: Observable[B]): Observable[(A, B)] = map2(that)(_ -> _)
 
-  def subscribe(): Disposable = value.subscribe()
+  def subscribe(): Disposable = value.subscribe().asScala
 
-  def log: Single[List[A]] = {
+  def log: Single[List[A]] =
     foldLeft(List.empty[A])((b, a) => a :: b).map(_.reverse)
-  }
 
-  /** @see [[++]] */
+  /** @see [[++]]*/
   def concat[AA >: A](that: Observable[AA]): Observable[AA] =
-    repr[AA].concatWith(that.repr)
+  asJava[AA].concatWith(that.asJava).asScala
 
   /**
     * Example:
@@ -264,27 +257,27 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal { self 
     *
     */
   def ++[AA >: A](that: Observable[AA]): Observable[AA] =
-    concat(that)
+  concat(that)
 
   def onComplete(f: Try[Unit] => Unit): Disposable =
-    repr[A].subscribe(
-      ((_: A) => ()).asJava[rxf.Consumer[A]],
-      ((t: Throwable) => f(Failure(t))).asJava[rxf.Consumer[Throwable]],
-      (() => f(Success(()))).asJava[rxf.Action]
-    )
+    asJava[A].subscribe(
+      ((_: A) => ()).convertK1[Consumer],
+      ((t: Throwable) => f(Failure(t))).convertK1[Consumer],
+      (() => f(Success(()))).convert[Action]
+    ).asScala
 
 }
 
 
 object Observable {
 
-  def empty[A]: Observable[A] = rx.Observable.empty[A]()
+  def empty[A]: Observable[A] = rx.Observable.empty[A]().asScala
 
-  def error[A](t: => Throwable): Observable[A] = new Observable[A](rx.Observable.error((() => t).asJava[Callable[Throwable]]))
+  def error[A](t: => Throwable): Observable[A] = new Observable[A](rx.Observable.error((() => t).convertK[Callable]))
 
   def fromJava[A](o: rx.Observable[A]): Observable[A] = new Observable[A](o.asInstanceOf[rx.Observable[Any]])
 
-  def suspend[A](a: => Observable[A]): Observable[A] = rx.Observable.defer((() => a.repr[A]).asJava[Callable[rx.Observable[A]]])
+  def suspend[A](a: => Observable[A]): Observable[A] = rx.Observable.defer((() => a.asJava[A]).convertK[Callable]).asScala
 
   /**
     * Example:
@@ -299,15 +292,14 @@ object Observable {
     * }}}
     */
   def iterate[A](a: A)(f: A => A): Observable[A] =
-    pure(a) ++ rx.Observable
-      .generate[A, A](
-        (() => a).asJava[Callable[A]],
-        ((a: A, emitter: rx.Emitter[A]) => {
-          val next = f(a)
-          emitter.onNext(next)
-          next
-        }).asJava[rxf.BiFunction[A, rx.Emitter[A], A]]
-    )
+  pure(a) ++ rx.Observable
+    .generate[A, A](
+    (() => a).convertK[Callable],
+    ((a: A, emitter: rx.Emitter[A]) => {
+      val next = f(a)
+      emitter.onNext(next)
+      next
+    }).convertK[BiFunction]).asScala
 
   /**
     * Example:
@@ -322,17 +314,17 @@ object Observable {
     */
   def iterateWhile[A](a: A)(f: A => Option[A]): Observable[A] = {
     pure(a) ++ rx.Observable.generate(
-      (() => Some(a)).asJava[Callable[Option[A]]],
+      (() => Some(a): Option[A]).convertK[Callable],
       ((a: Option[A], emitter: rx.Emitter[A]) => {
         a.map(f).flatMap {
           case None =>
             emitter.onComplete()
             None
-          case next @ Some(value) =>
+          case next@Some(value) =>
             emitter.onNext(value)
             next
-      }
-    }).asJava[rxf.BiFunction[Option[A], rx.Emitter[A], Option[A]]])
+        }
+      }).convertK[BiFunction]).asScala
   }
 
   /**
@@ -347,7 +339,7 @@ object Observable {
     */
   def range(start: Int, end: Int): Observable[Int] = {
     require(end > start)
-    if(start == end) empty else fromJava(rx.Observable.range(start, end - start)).map(_.toInt)
+    if (start == end) empty else rx.Observable.range(start, end - start).asScala.map(_.toInt)
   }
 
   /**
@@ -363,18 +355,18 @@ object Observable {
     * }}}
     */
   def interval(period: Duration): Observable[Long] =
-    fromJava(rx.Observable.interval(period.length, period.unit)).map(_.toLong)
+  rx.Observable.interval(period.length, period.unit).asScala.map(_.toLong)
 
   def timer(delay: Duration): Observable[Long] =
-    fromJava(rx.Observable.timer(delay.length, delay.unit)).map(_.toLong)
+    rx.Observable.timer(delay.length, delay.unit).asScala.map(_.toLong)
 
-  def pure[A](a: A): Observable[A] = rx.Observable.just(a)
+  def pure[A](a: A): Observable[A] = rx.Observable.just(a).asScala
 
   def apply[A](as: A*): Observable[A] =
     as match {
       case Nil => empty
       case x :: Nil => pure(x)
-      case _ => rx.Observable.fromIterable(as.asJavaCollection)
+      case _ => rx.Observable.fromIterable(as.asJavaCollection).asScala
     }
 
 }

@@ -12,12 +12,21 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 )
 
-sourceGenerators in Compile <+= Template
+sourceGenerators in Compile <+= ConversionGenerator
   .generate(
     0 -> Seq(Interfaces.callable, Interfaces.action),
     1 -> Seq(Interfaces.predicate, Interfaces.function, Interfaces.consumer),
-    2 -> Seq(Interfaces.bifunction, Interfaces.biPredicate)
+    2 -> Seq(Interfaces.bifunction, Interfaces.biPredicate),
+    3 -> Seq(Interfaces.function3),
+    4 -> Seq(Interfaces.function4),
+    5 -> Seq(Interfaces.function5),
+    6 -> Seq(Interfaces.function6),
+    7 -> Seq(Interfaces.function7),
+    8 -> Seq(Interfaces.function8),
+    9 -> Seq(Interfaces.function9)
   )
+
+sourceGenerators in Compile <+= KConvertGenerator.generate(9)
 
 doctestTestFramework := DoctestTestFramework.ScalaTest
 

@@ -7,20 +7,20 @@ final class Disposable(val value: rx.disposables.Disposable) extends AnyVal { se
   def combine(that: Disposable): Disposable = {
     val c = new rx.disposables.CompositeDisposable
     c.addAll(self.value, that.value)
-    c
+    c.asScala
   }
 
   def combineAll(that: Disposable*): Disposable = {
     val c = new rx.disposables.CompositeDisposable
     c.add(self.value)
     c.addAll(that.map(_.value): _ *)
-    c
+    c.asScala
   }
 }
 
 object Disposable {
 
-  val empty: Disposable = rx.disposables.Disposables.empty()
+  val empty: Disposable = rx.disposables.Disposables.empty().asScala
 
   def combineAll(ds: Disposable*): Disposable =
     ds.headOption.map(_.combineAll(ds: _*)).getOrElse(empty)

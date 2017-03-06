@@ -7,5 +7,5 @@ private[rx] trait Conversion[-A, +B] {
   def apply(a: A): B
 }
 
-private[rx] object Conversions extends FunctionConversions
+private[rx] object Conversion extends FunctionConversions
 

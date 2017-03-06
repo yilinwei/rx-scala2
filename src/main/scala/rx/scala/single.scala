@@ -3,27 +3,33 @@ package rx.scala
 import java.util.concurrent.Callable
 
 import io.{reactivex => rx}
-import io.reactivex.{SingleSource, functions => rxf}
+import io.reactivex.functions._
 
 import scala.concurrent._
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
 
-import Conversions._
+import KTransform._
 
 final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
 
-  def repr[AA >: A]: rx.Single[AA] = value.asInstanceOf[rx.Single[AA]]
+  @inline def asJava[AA >: A]: rx.Single[AA] = value.asInstanceOf[rx.Single[AA]]
 
   def map[B](f: A => B): Single[B] =
-    repr[A].map[B](f.asJava[rxf.Function[A, B]])
+    asJava[A].map[B](f.convertK[Function]).asScala
 
   def flatMap[B](f: A => Single[B]): Single[B] =
-    repr[A].flatMap(f.andThen(_.repr[B]).asJava[rxf.Function[A, rx.Single[B]]])
+    asJava[A].flatMap(f.andThen(_.asJava[B]).convertK[Function]).asScala
+
+  def map2[B, C](that: Single[B])(f: (A, B) => C): Single[C] =
+    asJava[A].zipWith[B, C](that.asJava[B], f.convertK[BiFunction]).asScala
+
+  def zip[B](that: Single[B]): Single[(A, B)] =
+    map2(that)(_ -> _)
 
   def handle[AA >: A](f: PartialFunction[Throwable, Single[AA]]): Single[AA] = {
-    val func = (t: Throwable) => if (f.isDefinedAt(t)) f(t).repr[AA] else Single.error(t).repr[AA]
-    repr[AA].onErrorResumeNext(func.asJava[rxf.Function[Throwable, SingleSource[AA]]])
+    val func = (t: Throwable) => if(f.isDefinedAt(t)) f(t).asJava[AA] else Single.error(t).asJava[AA]
+    asJava[AA].onErrorResumeNext(func.convertK[Function]).asScala
   }
 
   /**
@@ -42,11 +48,11 @@ final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
   def attempt: Single[Try[A]] = Single.attempt(self)
 
   def onComplete(f: Try[A] => Unit): Disposable =
-    repr[A]
+    asJava[A]
       .subscribe(
-          ((a: A) => f(Success(a))).asJava[rxf.Consumer[A]],
-          ((t: Throwable) => f(Failure(t))).asJava[rxf.Consumer[Throwable]]
-      )
+          ((a: A) => f(Success(a))).convertK1[Consumer],
+          ((t: Throwable) => f(Failure(t))).convertK1[Consumer]
+      ).asScala
 
 }
 
@@ -73,7 +79,7 @@ object Single {
 
   implicit def singleToAwaitable[A](s: Single[A]): Awaitable[A] = new SingleAwaitable[A](s)
 
-  def error[A](t: => Throwable): Single[A] = rx.Single.error[A]((() => t).asJava[Callable[Throwable]])
+  def error[A](t: => Throwable): Single[A] = rx.Single.error[A]((() => t).convertK[Callable]).asScala
 
   //For 2.10.6 [[http://stackoverflow.com/questions/21613666/scala-value-class-compilation-fails-for-base-type-with-partial-function-paramete#21614635]]
   private def attempt[A](s: Single[A]): Single[Try[A]] = {
@@ -84,7 +90,7 @@ object Single {
 
   def fromJava[A](s: rx.Single[A]): Single[A] = new Single(s.asInstanceOf[rx.Single[Any]])
 
-  def apply[A](a: A): Single[A] = rx.Single.just(a)
+  def apply[A](a: A): Single[A] = rx.Single.just(a).asScala
 }
 
 
