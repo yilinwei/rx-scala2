@@ -1,15 +1,16 @@
-package rx.scala
+package io.rx
 
 import java.util.concurrent.Callable
-
-import cats._
 
 import scala.collection.JavaConverters._
 import io.{reactivex => rx}
 
-import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
 import io.reactivex.functions._
+
+import scala.collection.immutable.VectorBuilder
+
+import io.rx.implicits._
 
 private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
   def map[B](f: A => B): Observable[B] = o.map(f)
@@ -18,22 +19,20 @@ private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
   def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter[A](a => p(a) && f(a), o)
 }
 
-import KTransform._
+import KConvert._
 
-final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
-  self =>
+class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
 
-  @inline def asJava[AA >: A]: rx.Observable[AA] = value.asInstanceOf[rx.Observable[AA]]
+  @inline def asJava[AA >: A]: RxObservable[AA] = value.asInstanceOf[RxObservable[AA]]
 
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable(1, 2, 3)
     *   scala> val res = o.filter(_ > 2)
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(3)
     * }}}
     */
@@ -46,12 +45,11 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable("foo", "bar")
     *   scala> val res = o.map(_.length)
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(3, 3)
     * }}}
     */
@@ -64,12 +62,11 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable(1, 2)
     *   scala> val res = o.flatMap(a => Observable(a + 1, a + 2))
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(2, 3, 3, 4)
     * }}}
     */
@@ -79,12 +76,11 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable(Observable(1, 2), Observable(3, 4))
     *   scala> val res = o.flatten
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(1, 2, 3, 4)
     * }}}
     */
@@ -96,12 +92,11 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable.error[Int](new IllegalArgumentException("foo"))
     *   scala> val res = o.handle { case t: IllegalArgumentException => Observable(1) }
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(1)
     * }}}
     */
@@ -113,32 +108,27 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o1 = Observable.error[Int](new IllegalArgumentException("foo"))
     *   scala> val o2 = Observable(1)
     *   scala> val res = o1.orElse(o2)
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(1)
     * }}}
     */
   def orElse[AA >: A](that: Observable[AA]): Observable[AA] =
   asJava[AA].onErrorResumeNext(that.asJava[AA]).asScala
 
-  //TODO: move out into subproject
-  def scan[AA >: A, M](implicit M: Monoid[AA]): Observable[AA] =
-  scanLeft(M.empty)(M.combine)
 
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable(1, 2, 3, 4, 5)
     *   scala> val res = o.scanLeft(0)(_ + _)
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(0, 1, 3, 6, 10, 15)
     * }}}
     */
@@ -148,9 +138,8 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable(1, 2, 3)
     *   scala> val res = o.foldLeft(10)(_ - _)
     *   scala> Await.result(res, 1 second)
@@ -158,11 +147,10 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
     * }}}
     */
   def foldLeft[B](b: B)(f: (B, A) => B): Single[B] =
-  asJava[A].reduce[B](b, f.convertK[BiFunction]).asScala
+    asJava[A].reduce[B](b, f.convertK[BiFunction]).asScala
 
-  //TODO: move out into subproject
-  def fold[AA >: A, M](implicit M: Monoid[AA]): Single[AA] =
-  asJava[AA].reduce((M.combine _).convertK[BiFunction]).toSingle(M.empty).asScala
+  def sample(duration: Duration)(implicit scheduler: Scheduler[Computation]): Observable[A] =
+    asJava.sample(duration.length, duration.unit, scheduler.asJava).asScala
 
   def debounce(duration: Duration): Observable[A] =
     asJava.debounce(duration.length, duration.unit).asScala
@@ -170,20 +158,27 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   def delay(duration: Duration): Observable[A] =
     asJava.delay(duration.length, duration.unit).asScala
 
+  def uniqueWith[B](f: A => B): Observable[A] =
+    asJava.distinct(f.convertK[Function]).asScala
+
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable(1, 1, 3, 4)
     *   scala> val res = o.distinct
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(1, 3, 4)
     * }}}
     */
-  def distinct: Observable[A] =
+  def unique: Observable[A] =
   asJava.distinct.asScala
+
+  def distinct(f: (A, A) => Boolean): Observable[A] =
+    asJava[A].distinctUntilChanged(f.convertK1[BiPredicate]).asScala
+
+  def distinct: Observable[A] = distinct(_ == _)
 
   def drop(count: Long): Observable[A] =
     asJava.skip(count).asScala
@@ -209,7 +204,7 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
     s.map((o: Option[AA]) => o.getOrElse(a))
 
   def getOrElse[AA >: A](index: Long, a: => AA): Single[AA] =
-     elseDefault(get(index), a)
+    elseDefault(get(index), a)
 
   def head: Single[Option[A]] =
     map(Option(_)).asJava.firstElement().toSingle(None).asScala
@@ -222,21 +217,40 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   def lastOrElse[AA >: A](a: => AA): Single[AA] =
     elseDefault(last, a)
 
-  def map2[B, C](that: Observable[B])(f: (A, B) => C): Observable[C] =
+  def zipWith[B, C](that: Observable[B])(f: (A, B) => C): Observable[C] =
     asJava[A].zipWith[B, C](that.asJava[B], f.convertK[BiFunction]).asScala
 
-  def map2Latest[B, C](that: Observable[B])(f: (A, B) => C): Observable[C] =
+  def zipWith2[B, C, D](b: Observable[B], c: Observable[C])(f: (A, B, C) => D): Observable[D] =
+    rx.Observable.zip[A, B, C, D](asJava, b.asJava, c.asJava, f.convertK[Function3]).asScala
+
+  def zipWithLatest[B, C](that: Observable[B])(f: (A, B) => C): Observable[C] =
     rx.Observable.combineLatest[A, B, C](self.asJava[A], that.asJava[B], f.convertK[BiFunction]).asScala
 
   def merge[AA >: A](that: Observable[AA]): Observable[AA] =
     rx.Observable.merge(asJava[A], that.asJava[AA]).asScala
 
-  def zip[B](that: Observable[B]): Observable[(A, B)] = map2(that)(_ -> _)
+  def zip[B](that: Observable[B]): Observable[(A, B)] = zipWith(that)(_ -> _)
+
+  def zip2[B, C](b: Observable[B], c: Observable[C]): Observable[(A, B, C)] =
+    zipWith2(b, c)((_, _, _))
 
   def subscribe(): Disposable = value.subscribe().asScala
 
-  def log: Single[List[A]] =
+  def groupBy[B, C](f: A => B, g: A => C): Observable[(B, Observable[C])] =
+    groupBy(f).map { case (k, o) => k -> o.map(g) }
+
+  def groupBy[B](f: A => B): Observable[(B, Observable[A])] =
+    asJava[A].groupBy[B](f.convertK[Function]).asScala.map(o => o.getKey -> o.asScala)
+
+  def drain[B](subject: Subject[A, B]): Observable[B] = subject(self)
+
+  def drain2[AA >: A, B](that: Observable[AA])(subject: Subject[AA, B]): Observable[B] = merge(that).drain(subject)
+
+  def toList: Single[List[A]] =
     foldLeft(List.empty[A])((b, a) => a :: b).map(_.reverse)
+
+  def toVector: Single[Vector[A]] =
+    foldLeft(new VectorBuilder[A])((b, a) => b += a).map(_.result())
 
   /** @see [[++]]*/
   def concat[AA >: A](that: Observable[AA]): Observable[AA] =
@@ -245,19 +259,21 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o1 = Observable(1, 2)
     *   scala> val o2 = Observable(3, 4)
     *   scala> val res = o1 ++ o2
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0 = List(1, 2, 3, 4)
     * }}}
     *
     */
   def ++[AA >: A](that: Observable[AA]): Observable[AA] =
   concat(that)
+
+  def amb[AA >: A](that: Observable[AA]): Observable[AA] =
+    asJava[AA].ambWith(that.asJava[AA]).asScala
 
   def onComplete(f: Try[Unit] => Unit): Disposable =
     asJava[A].subscribe(
@@ -271,23 +287,22 @@ final class Observable[+A](val value: rx.Observable[Any]) extends AnyVal {
 
 object Observable {
 
+  def never[A]: Observable[A] = rx.Observable.never[A].asScala
+
   def empty[A]: Observable[A] = rx.Observable.empty[A]().asScala
 
-  def error[A](t: => Throwable): Observable[A] = new Observable[A](rx.Observable.error((() => t).convertK[Callable]))
-
-  def fromJava[A](o: rx.Observable[A]): Observable[A] = new Observable[A](o.asInstanceOf[rx.Observable[Any]])
+  def error[A](t: => Throwable): Observable[A] = rx.Observable.error((() => t).convertK[Callable]).asScala
 
   def suspend[A](a: => Observable[A]): Observable[A] = rx.Observable.defer((() => a.asJava[A]).convertK[Callable]).asScala
 
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val o = Observable.iterate(0)(_ + 1)
     *   scala> val res = o.take(4)
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(0, 1, 2, 3)
     * }}}
     */
@@ -304,11 +319,10 @@ object Observable {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val res = Observable.iterateWhile(0)(a => if(a < 3) Some(a + 1) else None)
-    *   scala> Await.result(res.log, 1 second)
+    *   scala> Await.result(res.toList, 1 second)
     *   res0: List[Int] = List(0, 1, 2, 3)
     * }}}
     */
@@ -330,45 +344,47 @@ object Observable {
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val res = Observable.range(0, 3)
     *   res0: List[Int] = List(0, 1, 2, 3)
     * }}}
     */
   def range(start: Int, end: Int): Observable[Int] = {
-    require(end > start)
+    require(end >= start)
     if (start == end) empty else rx.Observable.range(start, end - start).asScala.map(_.toInt)
+  }
+
+  def range(start: Long, end: Long): Observable[Long] = {
+    require(end >= start)
+    if(start == end) empty else rx.Observable.rangeLong(start, end - start).asScala.map(_.toLong)
   }
 
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val interval = Observable.interval(100 milliseconds)
     *   scala> val res = interval.take(150 milliseconds)
-    *   scala> Await.result(res.log, 1 second).size
+    *   scala> Await.result(res.toList, 1 second).size
     *   res0: Int = 1
     * }}}
     */
   def interval(period: Duration): Observable[Long] =
   rx.Observable.interval(period.length, period.unit).asScala.map(_.toLong)
 
-  def timer(delay: Duration): Observable[Long] =
-    rx.Observable.timer(delay.length, delay.unit).asScala.map(_.toLong)
-
   def pure[A](a: A): Observable[A] = rx.Observable.just(a).asScala
+
+  def fromSeq[A](seq: Seq[A]): Observable[A] =
+    rx.Observable.fromIterable(seq.asJavaCollection).asScala
 
   def apply[A](as: A*): Observable[A] =
     as match {
       case Nil => empty
       case x :: Nil => pure(x)
-      case _ => rx.Observable.fromIterable(as.asJavaCollection).asScala
+      case _ => fromSeq(as)
     }
 
 }
-
 

@@ -1,7 +1,9 @@
-package rx.scala
+package io.rx
 
 
 import io.{reactivex => rx}
+
+import implicits._
 
 final class Disposable(val value: rx.disposables.Disposable) extends AnyVal { self =>
   def combine(that: Disposable): Disposable = {

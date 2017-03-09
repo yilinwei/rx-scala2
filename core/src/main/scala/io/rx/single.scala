@@ -1,22 +1,27 @@
-package rx.scala
+package io.rx
 
 import java.util.concurrent.Callable
 
 import io.{reactivex => rx}
+import io.reactivex.{subjects => rxs}
 import io.reactivex.functions._
 
 import scala.concurrent._
-import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
 
-import KTransform._
+import io.rx.implicits._
 
-final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
+import KConvert._
+
+final class Single[+A](val value: RxSingle[Any]) extends AnyVal { self =>
 
   @inline def asJava[AA >: A]: rx.Single[AA] = value.asInstanceOf[rx.Single[AA]]
 
   def map[B](f: A => B): Single[B] =
     asJava[A].map[B](f.convertK[Function]).asScala
+
+  def foreach(f: A => Unit): Disposable =
+    asJava[A].subscribe(f.convertK1[Consumer]).asScala
 
   def flatMap[B](f: A => Single[B]): Single[B] =
     asJava[A].flatMap(f.andThen(_.asJava[B]).convertK[Function]).asScala
@@ -35,10 +40,8 @@ final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
   /**
     * Example:
     * {{{
-    *   scala> import rx.scala._
-    *   scala> import scala.concurrent.Await
-    *   scala> import scala.concurrent.duration._
-    *   scala> import scala.util._
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
     *   scala> val s = Single.error[Int](new IllegalArgumentException("foo"))
     *   scala> val res = s.attempt
     *   scala> Await.result(res, 1 second).isFailure
@@ -54,6 +57,15 @@ final class Single[+A](val value: rx.Single[Any]) extends AnyVal { self =>
           ((t: Throwable) => f(Failure(t))).convertK1[Consumer]
       ).asScala
 
+  def toFuture: Future[A] = {
+    val p =  Promise[A]()
+    self.onComplete(p.complete)
+    p.future
+  }
+
+  def toObservable: Observable[A] =
+    asJava[A].toObservable.asScala
+
 }
 
 private[rx] final class SingleAwaitable[A](s: Single[A]) extends Awaitable[A] { self =>
@@ -61,18 +73,12 @@ private[rx] final class SingleAwaitable[A](s: Single[A]) extends Awaitable[A] { 
   @scala.throws[InterruptedException](classOf[InterruptedException])
   @scala.throws[TimeoutException](classOf[TimeoutException])
   override def ready(atMost: Duration)(implicit permit: CanAwait): SingleAwaitable.this.type = {
-    val p = Promise[A]
-    s.onComplete(p.complete)
-    Await.ready(p.future, atMost)
+    Await.ready(s.toFuture, atMost)
     self
   }
 
   @scala.throws[Exception](classOf[Exception])
-  override def result(atMost: Duration)(implicit permit: CanAwait): A = {
-    val p = Promise[A]
-    s.onComplete(p.complete)
-    Await.result(p.future, atMost)
-  }
+  override def result(atMost: Duration)(implicit permit: CanAwait): A = Await.result(s.toFuture, atMost)
 }
 
 object Single {
@@ -88,7 +94,28 @@ object Single {
     }
   }
 
-  def fromJava[A](s: rx.Single[A]): Single[A] = new Single(s.asInstanceOf[rx.Single[Any]])
+  def fromTry[A](_try: Try[A]): Single[A] = {
+    _try match {
+      case Success(a) => Single(a)
+      case Failure(t) => Single.error(t)
+    }
+  }
+
+  def fromFuture[A](future: Future[A])(implicit executor: ExecutionContext): Single[A] = {
+    if(future.isCompleted) {
+      fromTry(future.value.get)
+    } else {
+      val s = rxs.SingleSubject.create[A]()
+      future.onComplete {
+        case Success(a) => s.onSuccess(a)
+        case Failure(t) => s.onError(t)
+      }
+      s.asScala
+    }
+  }
+
+  def timer(delay: Duration): Single[Long] =
+    rx.Single.timer(delay.length, delay.unit).asScala.map(_.toLong)
 
   def apply[A](a: A): Single[A] = rx.Single.just(a).asScala
 }

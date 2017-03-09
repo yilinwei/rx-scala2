@@ -84,7 +84,7 @@ object ConversionGenerator extends Generator {
       val fTpe = functionTpe(arity)
       val text =
         s"""
-           | package rx.scala
+           | package io.rx
            | private[rx] trait Function${arity}Conversions {
            |    ${interfaces.map(conversion(version, _, arity)).mkString(System.lineSeparator())}
            | }
@@ -102,7 +102,7 @@ object ConversionGenerator extends Generator {
     val conversionTraits = config.indices.map(arity => s"Function${arity}Conversions").mkString(" with ")
     val text =
       s"""
-         | package rx.scala
+         | package io.rx
          | private[rx] trait FunctionConversions extends $conversionTraits
    """.stripMargin
     val file = path / "FunctionConversions.scala"
@@ -131,14 +131,14 @@ object KConvertGenerator extends Generator {
   }
 
   def generate(arity: Int) = Def.task {
-    val path = (sourceManaged in Compile).value / "rx" / "scala"
+    val path = (sourceManaged in Compile).value / "io" / "rx"
     val text = s"""
-       | package rx.scala
-       | object KTransform {
+       | package io.rx
+       | object KConvert {
        |  ${(1 until arity).map(kConvert).mkString(System.lineSeparator())}
        | }
      """.stripMargin
-    val file = path / "KTransform.scala"
+    val file = path / "KConvert.scala"
     IO.write(file, text)
     Seq(file)
   }

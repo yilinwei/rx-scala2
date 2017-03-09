@@ -1,4 +1,4 @@
-package rx.scala
+package io.rx
 
 import scala.annotation.implicitNotFound
 
