@@ -27,7 +27,7 @@ lazy val commonScalacOptions = Seq(
 
 lazy val commonSettings = Seq(
   organization := "io.reactivex",
-  version := "0.1",
+  version := "2.0.0-SNAPSHOT",
   scalaVersion := "2.12.1",
   crossScalaVersions := Seq("2.10.6", "2.11.8", "2.12.1"),
   libraryDependencies ++= Seq(
@@ -40,7 +40,7 @@ lazy val commonSettings = Seq(
 
 lazy val core = (project in file("core"))
   .settings(
-    name := "rxscala2",
+    name := "rxscala",
     commonSettings,
     generateSettings,
     initialCommands :=
@@ -54,7 +54,7 @@ lazy val cats = (project in file("cats"))
   .settings(libraryDependencies += "org.typelevel" %% "cats-core" % catsVersion)
   .dependsOn(core)
   .settings(
-    name := "rxscala2-cats",
+    name := "rxscala-cats",
     commonSettings,
     initialCommands :=
       s"""
@@ -66,3 +66,4 @@ lazy val cats = (project in file("cats"))
        """
   )
 
+lazy val root = (project in file(".")).aggregate(cats, core)

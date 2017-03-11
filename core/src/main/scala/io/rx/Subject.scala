@@ -9,6 +9,7 @@ import KConvert._
 
 final class Subject[-A, +B](val repr: RxSubject[Any], f: A => B) { self =>
   def asJava[AA <: A]: rx.Subject[AA] = repr.asInstanceOf[rx.Subject[AA]]
+
   def apply(o: Observable[A]): Observable[B] = o.asJava.subscribeWith(asJava[A]).map[B](f.convertK[Function]).asScala
   def contramap[AA](f: AA => A): Subject[AA, B] = new Subject[AA, B](repr, f.andThen(self.f))
   def map[BB](f: B => BB): Subject[A, BB] = new Subject[A, BB](repr, self.f.andThen(f))

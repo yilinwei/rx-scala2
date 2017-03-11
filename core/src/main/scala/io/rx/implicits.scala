@@ -28,9 +28,14 @@ final class RxSubjectOps[A](val value: RxSubject[A]) extends AnyVal {
   def asScala: Subject[A, A] = new Subject[A, A](value.asInstanceOf[RxSubject[Any]], identity)
 }
 
+final class RxFlowableOps[A](val value: RxFlowable[A]) extends AnyVal {
+  def asScala: Flowable[A] = new Flowable[A](value.asInstanceOf[RxFlowable[Any]])
+}
+
 trait JavaConversionSyntax {
   implicit def rxObservableToRxObservableOps[A](o: RxObservable[A]): RxObservableOps[A] = new RxObservableOps(o)
   implicit def rxSingleToRxSingleOps[A](s: RxSingle[A]): RxSingleOps[A] = new RxSingleOps(s)
   implicit def rxDisposableToRxDisposableOps(d: RxDisposable): RxDisposableOps = new RxDisposableOps(d)
   implicit def rxSubjectToRxSubjectOps[A](s: RxSubject[A]): RxSubjectOps[A] = new RxSubjectOps(s)
+  implicit def rxFlowableToRxFlowableOps[A](o: RxFlowable[A]): RxFlowableOps[A] = new RxFlowableOps(o)
 }

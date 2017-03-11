@@ -10,7 +10,7 @@ package object rx {
   type RxSingle[A] = io.reactivex.Single[A]
   type RxSubject[A] = io.reactivex.subjects.Subject[A]
   type RxDisposable = io.reactivex.disposables.Disposable
-
+  type RxFlowable[A] = io.reactivex.Flowable[A]
 
 }
 

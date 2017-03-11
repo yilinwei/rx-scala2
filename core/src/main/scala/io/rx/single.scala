@@ -13,7 +13,7 @@ import io.rx.implicits._
 
 import KConvert._
 
-final class Single[+A](val value: RxSingle[Any]) extends AnyVal { self =>
+final class Single[+A](val value: RxSingle[Any]) { self =>
 
   @inline def asJava[AA >: A]: rx.Single[AA] = value.asInstanceOf[rx.Single[AA]]
 
@@ -37,19 +37,6 @@ final class Single[+A](val value: RxSingle[Any]) extends AnyVal { self =>
     asJava[AA].onErrorResumeNext(func.convertK[Function]).asScala
   }
 
-  /**
-    * Example:
-    * {{{
-    *   scala> import io.rx._
-    *   scala> import io.rx.implicits._
-    *   scala> val s = Single.error[Int](new IllegalArgumentException("foo"))
-    *   scala> val res = s.attempt
-    *   scala> Await.result(res, 1 second).isFailure
-    *   res0: Boolean = true
-    * }}}
-    */
-  def attempt: Single[Try[A]] = Single.attempt(self)
-
   def onComplete(f: Try[A] => Unit): Disposable =
     asJava[A]
       .subscribe(
@@ -66,6 +53,22 @@ final class Single[+A](val value: RxSingle[Any]) extends AnyVal { self =>
   def toObservable: Observable[A] =
     asJava[A].toObservable.asScala
 
+  /**
+    * Example:
+    * {{{
+    *   scala> import io.rx._
+    *   scala> import io.rx.implicits._
+    *   scala> val s = Single.error[Int](new IllegalArgumentException("foo"))
+    *   scala> val res = s.attempt
+    *   scala> Await.result(res, 1 second).isFailure
+    *   res0: Boolean = true
+    * }}}
+    */
+  def attempt: Single[Try[A]] = {
+    self.map[Try[A]](Success(_)).handle {
+      case t => Single(Failure(t))
+    }
+  }
 }
 
 private[rx] final class SingleAwaitable[A](s: Single[A]) extends Awaitable[A] { self =>
@@ -87,18 +90,17 @@ object Single {
 
   def error[A](t: => Throwable): Single[A] = rx.Single.error[A]((() => t).convertK[Callable]).asScala
 
-  //For 2.10.6 [[http://stackoverflow.com/questions/21613666/scala-value-class-compilation-fails-for-base-type-with-partial-function-paramete#21614635]]
-  private def attempt[A](s: Single[A]): Single[Try[A]] = {
-    s.map[Try[A]](Success(_)).handle {
-      case t => Single(Failure(t))
-    }
-  }
+  def suspend[A](s: => Single[A]): Single[A] = rx.Single.defer((() => s.asJava).convertK[Callable]).asScala
 
   def fromTry[A](_try: Try[A]): Single[A] = {
     _try match {
-      case Success(a) => Single(a)
+      case Success(a) => Single.pure(a)
       case Failure(t) => Single.error(t)
     }
+  }
+
+  def apply[A](a: => A): Single[A] = {
+    rx.Single.fromCallable((() => a).convertK[Callable]).asScala
   }
 
   def fromFuture[A](future: Future[A])(implicit executor: ExecutionContext): Single[A] = {
@@ -114,10 +116,10 @@ object Single {
     }
   }
 
-  def timer(delay: Duration): Single[Long] =
-    rx.Single.timer(delay.length, delay.unit).asScala.map(_.toLong)
+  def timer(delay: Duration)(implicit scheduler: Scheduler[Computation]): Single[Long] =
+    rx.Single.timer(delay.length, delay.unit, scheduler.asJava).asScala.map(_.toLong)
 
-  def apply[A](a: A): Single[A] = rx.Single.just(a).asScala
+  def pure[A](a: A): Single[A] = rx.Single.just(a).asScala
 }
 
 

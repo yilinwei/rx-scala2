@@ -9,19 +9,14 @@ import scala.util.{Failure, Success, Try}
 import io.reactivex.functions._
 
 import scala.collection.immutable.VectorBuilder
-
 import io.rx.implicits._
 
-private[rx] final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
-  def map[B](f: A => B): Observable[B] = o.map(f)
-  def flatMap[B, That](f: A => Observable[B]): Observable[B] = o.flatMap(f)
-  def foreach(f: A => Unit): Unit = o.foreach(f)
-  def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter[A](a => p(a) && f(a), o)
-}
+import scala.collection.mutable
+
 
 import KConvert._
 
-class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
+class Observable[+A](val value: RxObservable[Any]) { self =>
 
   @inline def asJava[AA >: A]: RxObservable[AA] = value.asInstanceOf[RxObservable[AA]]
 
@@ -38,7 +33,7 @@ class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
     */
   def filter(f: A => Boolean): Observable[A] = asJava.filter(f.convertK1[Predicate]).asScala
 
-  def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter(f, self)
+  def withFilter(f: A => Boolean): Observable.WithFilter[A] = new Observable.WithFilter(f, self)
 
   def foreach(f: A => Unit): Disposable = asJava.forEach(f.convertK1[Consumer]).asScala
 
@@ -152,11 +147,11 @@ class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
   def sample(duration: Duration)(implicit scheduler: Scheduler[Computation]): Observable[A] =
     asJava.sample(duration.length, duration.unit, scheduler.asJava).asScala
 
-  def debounce(duration: Duration): Observable[A] =
-    asJava.debounce(duration.length, duration.unit).asScala
+  def debounce(duration: Duration)(implicit scheduler: Scheduler[Computation]): Observable[A] =
+    asJava.debounce(duration.length, duration.unit, scheduler.asJava).asScala
 
-  def delay(duration: Duration): Observable[A] =
-    asJava.delay(duration.length, duration.unit).asScala
+  def delay(duration: Duration)(implicit scheduler: Scheduler[Computation]): Observable[A] =
+    asJava.delay(duration.length, duration.unit, scheduler.asJava).asScala
 
   def uniqueWith[B](f: A => B): Observable[A] =
     asJava.distinct(f.convertK[Function]).asScala
@@ -183,6 +178,9 @@ class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
   def drop(count: Long): Observable[A] =
     asJava.skip(count).asScala
 
+  def skip(duration: Duration)(implicit scheduler: Scheduler[Computation]): Observable[A] =
+    asJava.skip(duration.length, duration.unit, scheduler.asJava).asScala
+
   def dropWhile(f: A => Boolean): Observable[A] =
     asJava.skipWhile(f.convertK1[Predicate]).asScala
 
@@ -196,6 +194,9 @@ class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
 
   def takeWhile(f: A => Boolean): Observable[A] =
     asJava.takeWhile(f.convertK1[Predicate]).asScala
+
+  def takeUntil(f: A => Boolean): Observable[A] =
+    asJava.takeUntil(f.convertK1[Predicate]).asScala
 
   def get(index: Long): Single[Option[A]] =
     map(Option(_)).asJava.elementAt(index).toSingle(None).asScala
@@ -252,6 +253,12 @@ class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
   def toVector: Single[Vector[A]] =
     foldLeft(new VectorBuilder[A])((b, a) => b += a).map(_.result())
 
+  def toSet[AA >: A]: Single[Set[AA]] =
+    foldLeft(new mutable.SetBuilder[AA, Set[AA]](Set()))((b, a) => b += a).map(_.result())
+
+  def toSingle: Single[Option[A]] =
+    map(Some(_)).asJava.single(None).asScala
+
   /** @see [[++]]*/
   def concat[AA >: A](that: Observable[AA]): Observable[AA] =
   asJava[AA].concatWith(that.asJava).asScala
@@ -287,13 +294,20 @@ class Observable[+A](val value: RxObservable[Any]) extends AnyVal{ self =>
 
 object Observable {
 
+  final class WithFilter[+A](p: A => Boolean, o: Observable[A]) {
+    def map[B](f: A => B): Observable[B] = o.map(f)
+    def flatMap[B, That](f: A => Observable[B]): Observable[B] = o.flatMap(f)
+    def foreach(f: A => Unit): Unit = o.foreach(f)
+    def withFilter(f: A => Boolean): WithFilter[A] = new WithFilter[A](a => p(a) && f(a), o)
+  }
+
   def never[A]: Observable[A] = rx.Observable.never[A].asScala
 
   def empty[A]: Observable[A] = rx.Observable.empty[A]().asScala
 
   def error[A](t: => Throwable): Observable[A] = rx.Observable.error((() => t).convertK[Callable]).asScala
 
-  def suspend[A](a: => Observable[A]): Observable[A] = rx.Observable.defer((() => a.asJava[A]).convertK[Callable]).asScala
+  def suspend[A](a: Observable[A]): Observable[A] = rx.Observable.defer((() => a.asJava[A]).convertK[Callable]).asScala
 
   /**
     * Example:
@@ -341,6 +355,8 @@ object Observable {
       }).convertK[BiFunction]).asScala
   }
 
+
+
   /**
     * Example:
     * {{{
@@ -371,20 +387,27 @@ object Observable {
     *   res0: Int = 1
     * }}}
     */
-  def interval(period: Duration): Observable[Long] =
-  rx.Observable.interval(period.length, period.unit).asScala.map(_.toLong)
+  def interval(period: Duration)(implicit scheduler: Scheduler[Computation]): Observable[Long] =
+  rx.Observable.interval(period.length, period.unit, scheduler.asJava).asScala.map(_.toLong)
 
   def pure[A](a: A): Observable[A] = rx.Observable.just(a).asScala
+
+  def apply[A](as: A*): Observable[A] = fromSeq(as)
 
   def fromSeq[A](seq: Seq[A]): Observable[A] =
     rx.Observable.fromIterable(seq.asJavaCollection).asScala
 
-  def apply[A](as: A*): Observable[A] =
-    as match {
-      case Nil => empty
-      case x :: Nil => pure(x)
-      case _ => fromSeq(as)
-    }
+  def fromList[A](list: List[A]): Observable[A] = list match {
+    case Nil => empty
+    case x :: Nil => pure(x)
+    case xs => fromSeq(xs)
+  }
+
+  def fromTry[A](_try: Try[A]): Observable[A] = _try match {
+    case Success(a) => pure(a)
+    case Failure(e) => error(e)
+  }
+
 
 }
 

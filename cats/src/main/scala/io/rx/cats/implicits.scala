@@ -29,7 +29,7 @@ final class ObservableAlgebra extends MonadError[Observable, Throwable] {
 
   def tailRecM[A, B](a: A)(f: A => Observable[Either[A, B]]): Observable[B] =
     f(a).flatMap {
-      case Left(aa) => tailRecM(aa)(f)
+      case Left(aa) => Observable.suspend(tailRecM(aa)(f))
       case Right(b) => Observable.pure(b)
     }
 
